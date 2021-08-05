@@ -34,13 +34,6 @@ def mem(proc):
 
 # 监控硬盘使用率：
 def disk(proc):
-    # disk_data1 = proc.io_counters()
-    # time.sleep(1)
-    # disk_data2 = proc.io_counters()
-    # read_bytes = disk_data2.read_bytes - disk_data1.read_bytes
-    # write_bytes = disk_data2.write_bytes - disk_data1.write_bytes
-    # read_data = read_bytes / MB  # 每秒接受的Mb
-    # write_data = write_bytes / MB  # 每秒接受的Mb
     disk_data = proc.io_counters()
     read_bytes = disk_data.read_bytes
     write_bytes = disk_data.write_bytes
@@ -51,27 +44,32 @@ def disk(proc):
 
 # 监控网络流量：
 def network(proc):
-    a = proc.io_counters()
-    print(a)
-    network_data1 = proc.net_io_counters()
-    time.sleep(1)
-    network_data2 = proc.net_io_counters()
-    sent = network_data2[0] - network_data1[0]
-    recv = network_data2[1] - network_data1[1]
+    network_data = proc.net_io_counters()
+    sent = network_data[0]
+    recv = network_data[1]
     network_sent = sent / MB  # 每秒接受的Mb
     network_recv = recv / MB  # 每秒接受的Mb
+    # network_data1 = proc.net_io_counters()
+    # time.sleep(1)
+    # network_data2 = proc.net_io_counters()
+    # sent = network_data2[0] - network_data1[0]
+    # recv = network_data2[1] - network_data1[1]
+    # network_sent = sent / MB  # 每秒接受的Mb
+    # network_recv = recv / MB  # 每秒接受的Mb
     return network_sent, network_recv
 
 
 def get_info(proc):
     # cpu mem.rss mem.vms ioi ioo nioi nioo
     res = [0, 0, 0, 0, 0]
+    # print(proc.pid)
     try:
         res[0] = cpu(proc)  # CPU
         res[1], res[2] = mem(proc)  # mem
         res[3], res[4] = disk(proc)  # ioi ioo
         pass
-    except:
+    except Exception as e:
+        print(e)
         print("info error")
         pass
 
@@ -81,13 +79,17 @@ def get_info(proc):
 
 def get_info_all(main):
     all = [0, 0, 0, 0, 0]
-    for proc in chain((main, ), main.children(recursive=True)):
-        info = get_info(proc)
-        all[0] += info[0]
-        all[1] += info[1]
-        all[2] += info[2]
-        all[3] += info[3]
-        all[4] += info[4]
+    try:
+        for proc in chain((main, ), main.children(recursive=True)):
+            info = get_info(proc)
+            all[0] += info[0]
+            all[1] += info[1]
+            all[2] += info[2]
+            all[3] += info[3]
+            all[4] += info[4]
+    except Exception as e:
+        # print(e)
+        pass
     return all
     pass
 
@@ -105,14 +107,25 @@ def parse_arguments():
 def get_detail_info(proc):
     res = []
     while proc.is_running():
-        info = get_info_all(proc)
-        time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        res.append([time_str, info])
-        info_str_list = [time_str] + ['{:.4f}'.format(v) for v in info]
-        info_str = "\t".join(info_str_list)
-        print(info_str)
-        if proc.is_running():
+        try:
+            # print(proc.status())
+            info = get_info_all(proc)
             time.sleep(1)
+            info2 = get_info_all(proc)
+            # print(info)
+            # print(info2)
+            info[3] = info2[3] - info[3] if (info2[3] - info[3]) > 0 else 0
+            info[4] = info2[4] - info[4] if (info2[4] - info[4]) > 0 else 0
+            time_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            res.append([time_str, info])
+            # info_str_list = [time_str] + ['{:.4f}'.format(v) for v in info]
+            # info_str = "\t".join(info_str_list)
+            # print(info_str)
+            # if proc.is_running():
+            #     time.sleep(1)
+        except Exception as e:
+            # print(e)
+            pass
         pass
     return res
     pass
@@ -136,7 +149,8 @@ def get_stat_info(pid):
         res = {}
         detail_info = get_detail_info(proc)
         all_info = get_all_info(proc)
-    except:
+    except Exception as e:
+        # print(e)
         print("stat info error")
         pass
     res["all"] = all_info
@@ -146,9 +160,13 @@ def get_stat_info(pid):
 
 
 def thread_run(cmd, q):
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ)
+    print(cmd)
+    # process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=os.environ)
+    cmd_str = " ".join(['"{}"'.format(v) for v in cmd])
+    process = subprocess.Popen(cmd_str, shell=True, env=os.environ)
     q.put(process.pid)
     process.wait()
+    # process.terminate()
     pass
 
 
@@ -158,6 +176,10 @@ def run_command(cmd):
     p.start()
     pid = q.get()
     info = get_stat_info(pid)
+    # while not p.is_alive():
+    #     print(".")
+    #     time.sleep(1)
+    #     continue
     p.join()
     p.close()
     return info
@@ -219,7 +241,7 @@ def write_stat(start_time, end_time, info, outfile):
     headname_all = "\t".join(headname_list_all) + "\n"
     out.write(headname_all)
     out.write(head)
-    print(head)
+    # print(head)
 
     headname_list = ["Time", "CPU(N)", "RSS(G)", "VMS(G)", "IOI(M)", "IOO(M)"]
     headname = "\t".join(headname_list) + "\n"
@@ -253,44 +275,6 @@ def main():
     write_stat(start_time, end_time, info, output)
     pass
 
-'''
-运行时间
-运行时间-格式化
-CPU时间
-平均CPU时间
-
-最大cpu使用
-平均cpu使用
-最大常驻内存
-平均常驻内存
-最大虚拟内存
-平均虚拟内存
-最大读取IO
-平均读取IO
-最大写入IO
-平均写入IO
-最大发送网络
-平均发送网络
-最大接收网络
-平均接收网络
-'''
-
-
-def test():
-    pid = 4
-    proc = psutil.Process(pid)
-    # detail_info = get_detail_info(proc)
-    # all_info = get_all_info(proc)
-    res = [0, 0, 0, 0, 0, 0, 0]
-    res[0] = cpu(proc)  # CPU
-    res[1], res[2] = mem(proc)  # mem
-    res[3], res[4] = disk(proc)  # ioi ioo
-    proc.connections()
-    # res[5], res[6] = network(proc)  # nioi nioo
-    # print(detail_info)
-    # print(all_info)
-    print(res)
-    pass
 
 #
 # def get_record(main):
@@ -365,14 +349,6 @@ def test():
 #     bench_record.setdefault("cpu_time", cpu_time)
 #
 #     return bench_record
-
-
-def test2():
-    pid = 65440
-    proc = psutil.Process(pid)
-    out = get_record(proc)
-    print(out)
-    pass
 
 
 if __name__ == "__main__":
